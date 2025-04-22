@@ -64,12 +64,8 @@ def matvecmul(a, b):
 
 # **************************************************************************************
 def linkToScene(ob):
-    if isBlender28OrLater:
-        if bpy.context.collection.objects.find(ob.name) < 0:
-            bpy.context.collection.objects.link(ob)
-    else:
-        if bpy.context.scene.objects.find(ob.name) < 0:
-            bpy.context.scene.objects.link(ob)
+    if bpy.context.collection.objects.find(ob.name) < 0:
+        bpy.context.collection.objects.link(ob)
 
 # **************************************************************************************
 def linkToCollection(collectionName, ob):
@@ -82,37 +78,22 @@ def linkToCollection(collectionName, ob):
 
 # **************************************************************************************
 def unlinkFromScene(ob):
-    if isBlender28OrLater:
-        if bpy.context.collection.objects.find(ob.name) >= 0:
-            bpy.context.collection.objects.unlink(ob)
-    else:
-        if bpy.context.scene.objects.find(ob.name) >= 0:
-            bpy.context.scene.objects.unlink(ob)
+    if bpy.context.collection.objects.find(ob.name) >= 0:
+        bpy.context.collection.objects.unlink(ob)
 
 # **************************************************************************************
 def selectObject(ob):
-    if isBlender28OrLater:
-        ob.select_set(state=True)
-        bpy.context.view_layer.objects.active = ob
-    else:
-        ob.select = True
-        bpy.context.scene.objects.active = ob
+    ob.select_set(state=True)
+    bpy.context.view_layer.objects.active = ob
 
 # **************************************************************************************
 def deselectObject(ob):
-    if isBlender28OrLater:
-        ob.select_set(state=False)
-        bpy.context.view_layer.objects.active = None
-    else:
-        ob.select = False
-        bpy.context.scene.objects.active = None
+    ob.select_set(state=False)
+    bpy.context.view_layer.objects.active = None
 
 # **************************************************************************************
 def addPlane(location, size):
-    if isBlender28OrLater:
-        bpy.ops.mesh.primitive_plane_add(size=size, enter_editmode=False, location=location)
-    else:
-        bpy.ops.mesh.primitive_plane_add(radius=size, view_align=False, enter_editmode=False, location=location)
+    bpy.ops.mesh.primitive_plane_add(size=size, enter_editmode=False, location=location)
 
 # **************************************************************************************
 def useDenoising(scene, useDenoising):
@@ -125,25 +106,16 @@ def getLayerNames(scene):
 
 # **************************************************************************************
 def deleteEdge(bm, edge):
-    if isBlender28OrLater:
-        bmesh.ops.delete(bm, geom=edge, context='EDGES')
-    else:
-        bmesh.ops.delete(bm, geom=[edge], context=2)
+    bmesh.ops.delete(bm, geom=edge, context='EDGES')
 
 # **************************************************************************************
 def getLayers(scene):
     # Get the render/view layers we are interested in:
-    if isBlender28OrLater:
-        return scene.view_layers
-    else:
-        return scene.render.layers
+    return scene.view_layers
 
 # **************************************************************************************
 def getDiffuseColor(color):
-    if isBlender28OrLater:
-        return color + (1.0,)
-    else:
-        return color
+    return color + (1.0,)
 
 # **************************************************************************************
 # **************************************************************************************
@@ -239,13 +211,8 @@ globalContext = None
 globalWeldDistance = 0.0005
 globalPoints = []
 
-isBlender28OrLater = None
 hasCollections = None
-if isBlender28OrLater:
-    lightName = "Light"
-else:
-    lightName = "Lamp"
-
+lightName = "Light"
 
 # **************************************************************************************
 # Dictionary with as keys the part numbers (without any extension for decorations)
@@ -571,6 +538,7 @@ class LegoColours:
 
         # Measure the perceived brightness of colour
         brightness = math.sqrt( 0.299*R*R + 0.587*G*G + 0.114*B*B )
+        print("RGB = {0},{1},{2} Brightness: {3}".format(R, G, B, brightness))
 
         # Dark colours have white lines
         if brightness < 0.02:
@@ -1222,10 +1190,7 @@ class LDrawNode:
         self.groupNames     = groupNames.copy()
 
     def look_at(obj_camera, target, up_vector):
-        if isBlender28OrLater:
-            bpy.context.view_layer.update()
-        else:
-            bpy.context.scene.update()
+        bpy.context.view_layer.update()
 
         loc_camera = obj_camera.matrix_world.to_translation()
 
@@ -1725,72 +1690,6 @@ class BlenderMaterials:
             return name + " Instructions"
         return name
 
-    def __setBlenderRenderProperties(material, nodes, links, col):
-        """Set Blender Internal Material Values."""
-
-        if isBlender28OrLater:
-            return
-
-        material.diffuse_color = col["colour"]
-
-        alpha = col["alpha"]
-        if alpha < 1.0:
-            material.use_transparency = not Options.instructionsLook
-            material.alpha = alpha
-
-        material.emit = col["luminance"] / 100
-
-        if col["material"] == "CHROME":
-            material.specular_intensity = 1.4
-            material.roughness = 0.01
-            material.raytrace_mirror.use = True
-            material.raytrace_mirror.reflect_factor = 0.3
-
-        elif col["material"] == "PEARLESCENT":
-            material.specular_intensity = 0.1
-            material.roughness = 0.32
-            material.raytrace_mirror.use = True
-            material.raytrace_mirror.reflect_factor = 0.07
-
-        elif col["material"] == "RUBBER":
-            material.specular_intensity = 0.19
-
-        elif col["material"] == "METAL":
-            material.specular_intensity = 1.473
-            material.specular_hardness = 292
-            material.diffuse_fresnel = 0.93
-            material.darkness = 0.771
-            material.roughness = 0.01
-            material.raytrace_mirror.use = True
-            material.raytrace_mirror.reflect_factor = 0.9
-
-        #elif col["material"] == "GLITTER":
-        #    slot = material.texture_slots.add()
-        #    tex = bpy.data.textures.new("GlitterTex", type = "STUCCI")
-        #    tex.use_color_ramp = True
-        #
-        #    slot.texture = tex
-
-        else:
-            material.specular_intensity = 0.2
-
-        # Create input and output nodes, and link them together
-        input = nodes.new('ShaderNodeMaterial')
-        input.location = 0, -250
-        input.material = material
-        output = nodes.new('ShaderNodeOutput')
-        output.location = 400, -250
-
-        links.new(input.outputs[0], output.inputs[0])
-
-        if Options.instructionsLook and alpha < 1.0:
-            mult = BlenderMaterials.__nodeMath(nodes, 'MULTIPLY', 200, -410);
-            links.new(input.outputs[1], mult.inputs[0])
-            links.new(mult.outputs[0], output.inputs[1])
-        else:
-            links.new(input.outputs[1], output.inputs[1])
-
-
     def __createNodeBasedMaterial(blenderName, col, isSlopeMaterial=False):
         """Set Cycles Material Values."""
 
@@ -1809,13 +1708,8 @@ class BlenderMaterials:
             material.diffuse_color = getDiffuseColor(col["colour"][0:3])
 
         if Options.instructionsLook:
-            if not isBlender28OrLater:
-                material.use_shadeless = True
-                material.diffuse_intensity = 1.0
-                material.translucency = 0
-            else:
-                material.blend_method = 'BLEND'
-                material.show_transparent_back = False
+            material.blend_method = 'BLEND'
+            material.show_transparent_back = False
 
             if col is not None:
                 # Dark colours have white lines
@@ -1830,7 +1724,6 @@ class BlenderMaterials:
             nodes.remove(n)
 
         if col is not None:
-            BlenderMaterials.__setBlenderRenderProperties(material, nodes, links, col)
 
             isTransparent = col["alpha"] < 1.0
 
@@ -3477,10 +3370,7 @@ def setupImplicitParents():
     if not partsHierarchy:
         return
 
-    if isBlender28OrLater:
-        bpy.context.view_layer.update()
-    else:
-        bpy.context.scene.update()
+    bpy.context.view_layer.update()
 
     # create a set of the parent parts and a set of child parts from the partsHierarchy
     parentParts = set()
@@ -3841,10 +3731,7 @@ def createBlenderObjectsFromNode(node,
 
         # Add light to light bricks
         if (name in globalLightBricks):
-            if isBlender28OrLater:
-                 lights = bpy.data.lights
-            else:
-                 lights = bpy.data.lamps
+            lights = bpy.data.lights
             lamp_data = lights.new(name="LightLamp", type='POINT')
             lamp_data.shadow_soft_size = 0.05
             lamp_data.use_nodes = True
@@ -3885,14 +3772,11 @@ def createBlenderObjectsFromNode(node,
             bm.free()
 
             # Show the sharp edges in Edit Mode
-            if isBlender28OrLater:
-                for area in bpy.context.screen.areas:  # iterate through areas in current screen
-                    if area.type == 'VIEW_3D':
-                        for space in area.spaces:  # iterate through spaces in current VIEW_3D area
-                            if space.type == 'VIEW_3D':  # check if space is a 3D view
-                                space.overlay.show_edge_sharp = True
-            else:
-                ob.data.show_edge_sharp = True
+            for area in bpy.context.screen.areas:  # iterate through areas in current screen
+                if area.type == 'VIEW_3D':
+                    for space in area.spaces:  # iterate through spaces in current VIEW_3D area
+                        if space.type == 'VIEW_3D':  # check if space is a 3D view
+                            space.overlay.show_edge_sharp = True
 
             # Scale for Gaps
             if Options.gaps and node.file.isPart:
@@ -3985,12 +3869,8 @@ def setupLineset(lineset, thickness, group):
     lineset.select_material_boundary = False
     lineset.edge_type_combination = 'OR'
     lineset.edge_type_negation = 'INCLUSIVE'
-    if isBlender28OrLater:
-        lineset.select_by_collection = True
-        lineset.collection = bpy.data.collections[bpy.data.collections.find(group)]
-    else:
-        lineset.select_by_group = True
-        lineset.group = bpy.data.groups[bpy.data.groups.find(group)]
+    lineset.select_by_collection = True
+    lineset.collection = bpy.data.collections[bpy.data.collections.find(group)]
 
     # Set line color
     lineset.linestyle.color = (0.0, 0.0, 0.0)
@@ -4035,10 +3915,7 @@ def setupRealisticLook():
             background = nodes["Background"]
             links.new(env_tex.outputs[0],background.inputs[0])
     else:
-        if isBlender28OrLater:
-            scene.world.color = (1.0, 1.0, 1.0)
-        else:
-            scene.world.horizon_color = (1.0, 1.0, 1.0)
+        scene.world.color = (1.0, 1.0, 1.0)
 
     if Options.setRenderSettings:
         useDenoising(scene, True)
@@ -4083,16 +3960,6 @@ def setupRealisticLook():
         for i in range(len(layers)):
             layers[i].use = True
 
-        # Move each part to appropriate scene layer
-        if not isBlender28OrLater:
-            for object in scene.objects:
-                # For each lego object...
-                if "Lego.isTransparent" in object:
-                    # Turn on just the first scene layer
-                    length = len(object.layers)
-                    for i in range(length):
-                        object.layers[i] = (i == 0)
-
         # Create Compositing Nodes
         scene.use_nodes = True
 
@@ -4123,12 +3990,8 @@ def setupInstructionsLook():
     render = scene.render
     render.use_freestyle = True
 
-    if isBlender28OrLater:
-        # Use Blender Eevee for instructions look
-        render.engine = 'BLENDER_EEVEE'
-    else:
-        # Use Blender render for instructions look
-        render.engine = 'BLENDER_RENDER'
+    # Use Blender Eevee for instructions look
+    render.engine = 'BLENDER_EEVEE'
 
     # Change camera to Orthographic
     if scene.camera is not None:
@@ -4180,10 +4043,7 @@ def setupInstructionsLook():
 
     layerNames = list(map((lambda x: x.name), layers))
     if "SolidBricks" not in layerNames:
-        if isBlender28OrLater:
-            bpy.ops.scene.view_layer_add()
-        else:
-            bpy.ops.scene.render_layer_add()
+        bpy.ops.scene.view_layer_add()
 
         layers[-1].name = "SolidBricks"
         layers[-1].use = True
@@ -4191,10 +4051,7 @@ def setupInstructionsLook():
     solidLayer = layerNames.index("SolidBricks")
 
     if "TransparentBricks" not in layerNames:
-        if isBlender28OrLater:
-            bpy.ops.scene.view_layer_add()
-        else:
-            bpy.ops.scene.render_layer_add()
+        bpy.ops.scene.view_layer_add()
 
         layers[-1].name = "TransparentBricks"
         layers[-1].use = True
@@ -4212,91 +4069,46 @@ def setupInstructionsLook():
         if i not in [solidLayer, transLayer]:
             layers[i].use = False
 
-    if isBlender28OrLater:
-        layers[solidLayer].use = True
-        layers[transLayer].use = True
+    layers[solidLayer].use = True
+    layers[transLayer].use = True
 
-        # Include or exclude collections for each layer
-        for collection in layers[solidLayer].layer_collection.children:
-            collection.exclude = collection.name != 'Solid Bricks Collection'
-        for collection in layers[transLayer].layer_collection.children:
-            collection.exclude = collection.name != 'Transparent Bricks Collection'
+    # Include or exclude collections for each layer
+    for collection in layers[solidLayer].layer_collection.children:
+        collection.exclude = collection.name != 'Solid Bricks Collection'
+    for collection in layers[transLayer].layer_collection.children:
+        collection.exclude = collection.name != 'Transparent Bricks Collection'
 
-        #layers[solidLayer].layer_collection.children['Black Edged Bricks Collection'].exclude = True
-        #layers[solidLayer].layer_collection.children['White Edged Bricks Collection'].exclude = True
-        #layers[solidLayer].layer_collection.children['Solid Bricks Collection'].exclude = False
-        #layers[solidLayer].layer_collection.children['Transparent Bricks Collection'].exclude = True
+    #layers[solidLayer].layer_collection.children['Black Edged Bricks Collection'].exclude = True
+    #layers[solidLayer].layer_collection.children['White Edged Bricks Collection'].exclude = True
+    #layers[solidLayer].layer_collection.children['Solid Bricks Collection'].exclude = False
+    #layers[solidLayer].layer_collection.children['Transparent Bricks Collection'].exclude = True
 
-        #layers[transLayer].layer_collection.children['Black Edged Bricks Collection'].exclude = True
-        #layers[transLayer].layer_collection.children['White Edged Bricks Collection'].exclude = True
-        #layers[transLayer].layer_collection.children['Solid Bricks Collection'].exclude = True
-        #layers[transLayer].layer_collection.children['Transparent Bricks Collection'].exclude = False
+    #layers[transLayer].layer_collection.children['Black Edged Bricks Collection'].exclude = True
+    #layers[transLayer].layer_collection.children['White Edged Bricks Collection'].exclude = True
+    #layers[transLayer].layer_collection.children['Solid Bricks Collection'].exclude = True
+    #layers[transLayer].layer_collection.children['Transparent Bricks Collection'].exclude = False
 
-        # Move each part to appropriate collection
-        for object in scene.objects:
-            isTransparent = False
-            if "Lego.isTransparent" in object:
-                isTransparent = object["Lego.isTransparent"]
+    # Move each part to appropriate collection
+    for object in scene.objects:
+        isTransparent = False
+        if "Lego.isTransparent" in object:
+            isTransparent = object["Lego.isTransparent"]
 
-                # Add objects to the appropriate layers
-                if isTransparent:
-                    linkToCollection('Transparent Bricks Collection', object)
+            # Add objects to the appropriate layers
+            if isTransparent:
+                linkToCollection('Transparent Bricks Collection', object)
+            else:
+                linkToCollection('Solid Bricks Collection', object)
+
+            # Add object to the appropriate group
+            if object.data != None:
+                colour = object.data.materials[0].diffuse_color
+
+                # Dark colours have white lines
+                if LegoColours.isDark(colour):
+                    linkToCollection('White Edged Bricks Collection', object)
                 else:
-                    linkToCollection('Solid Bricks Collection', object)
-
-                # Add object to the appropriate group
-                if object.data != None:
-                    colour = object.data.materials[0].diffuse_color
-
-                    # Dark colours have white lines
-                    if LegoColours.isDark(colour):
-                        linkToCollection('White Edged Bricks Collection', object)
-                    else:
-                        linkToCollection('Black Edged Bricks Collection', object)
-
-    else:
-        # Enable two scene layers
-        scene.layers[0] = True
-        scene.layers[1] = True
-
-        # Enable just the right scene layers in each of our two render layers
-        length = len(layers[solidLayer].layers)
-        for i in range(length):
-            layers[solidLayer].layers[i] = (i == 0)
-
-        length = len(layers[transLayer].layers)
-        for i in range(length):
-            layers[transLayer].layers[i] = (i == 1)
-
-        # Move each part to appropriate scene layer
-        for object in scene.objects:
-            isTransparent = False
-            if "Lego.isTransparent" in object:
-                isTransparent = object["Lego.isTransparent"]
-
-                # Turn on the appropriate layers
-                if isTransparent:
-                    object.layers[1] = True
-                else:
-                    object.layers[0] = True
-
-                # Turn off all other layers as appropriate
-                length = len(object.layers)
-                for i in range(length):
-                    if isTransparent:
-                        object.layers[i] = (i == 1)
-                    else:
-                        object.layers[i] = (i == 0)
-
-                # Add object to the appropriate group
-                if object.data != None:
-                    colour = object.data.materials[0].diffuse_color
-
-                    # Dark colours have white lines
-                    if LegoColours.isDark(colour):
-                        linkToCollection('White Edged Bricks Collection', object)
-                    else:
-                        linkToCollection('Black Edged Bricks Collection', object)
+                    linkToCollection('Black Edged Bricks Collection', object)
 
     # Find or create linesets
     solidBlackLineset = None
@@ -4377,10 +4189,7 @@ def iterateCameraPosition(camera, render, vcentre3d, moveCamera):
 
     global globalPoints
 
-    if isBlender28OrLater:
-        bpy.context.view_layer.update()
-    else:
-        bpy.context.scene.update()
+    bpy.context.view_layer.update()
 
     minX = sys.float_info.max
     maxX = -sys.float_info.max
@@ -4390,24 +4199,17 @@ def iterateCameraPosition(camera, render, vcentre3d, moveCamera):
     # Calculate matrix to take 3d points into normalised camera space
     modelview_matrix = camera.matrix_world.inverted()
 
-    if isBlender28OrLater:
-        get_depsgraph_method = getattr(bpy.context, "evaluated_depsgraph_get", None)
-        if callable(get_depsgraph_method):
-            depsgraph = get_depsgraph_method()
-        else:
-            depsgraph = bpy.context.depsgraph
-        projection_matrix = camera.calc_matrix_camera(
-            depsgraph,
-            x=render.resolution_x,
-            y=render.resolution_y,
-            scale_x=render.pixel_aspect_x,
-            scale_y=render.pixel_aspect_y)
+    get_depsgraph_method = getattr(bpy.context, "evaluated_depsgraph_get", None)
+    if callable(get_depsgraph_method):
+        depsgraph = get_depsgraph_method()
     else:
-        projection_matrix = camera.calc_matrix_camera(
-            render.resolution_x,
-            render.resolution_y,
-            render.pixel_aspect_x,
-            render.pixel_aspect_y)
+        depsgraph = bpy.context.depsgraph
+    projection_matrix = camera.calc_matrix_camera(
+        depsgraph,
+        x=render.resolution_x,
+        y=render.resolution_y,
+        scale_x=render.pixel_aspect_x,
+        scale_y=render.pixel_aspect_y)
 
     mp_matrix = matmul(projection_matrix, modelview_matrix)
     mpinv_matrix = mp_matrix.copy()
