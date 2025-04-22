@@ -109,7 +109,8 @@ class Options:
     # Full filepath to ldraw folder. If empty, some standard locations are attempted
     ldrawDirectory     = r""            # Full filepath to the ldraw parts library (searches some standard locations if left blank)
     instructionsLook   = False          # Set up scene to look like Lego Instruction booklets
-    scale              = 0.01           # Size of the lego model to create. (0.04 is LeoCAD scale)
+    #scale              = 0.01           # Size of the lego model to create. (0.04 is LeoCAD scale)
+    realScale          = 1              # Scale of lego model to create (1 represents real Lego scale)
     useUnofficialParts = True           # Additionally searches <ldraw-dir>/unofficial/parts and /p for files
     resolution         = "Standard"     # Choose from "High", "Standard", or "Low"
     defaultColour      = "4"            # Default colour ("4" = red)
@@ -120,7 +121,7 @@ class Options:
     smoothShading      = True           # Smooth the surface normals (recommended)
     edgeSplit          = True           # Edge split modifier (recommended if you use smoothShading)
     gaps               = True           # Introduces a tiny space between each brick
-    gapWidth           = 0.01           # Width of gap between bricks (in Blender units)
+    realGapWidth       = 0.0002         # Width of gap between bricks (in metres)
     curvedWalls        = True           # Manipulate normals to make surfaces look slightly concave
     importCameras      = True           # LeoCAD can specify cameras within the ldraw file format. Choose to load them or ignore them.
     positionObjectOnGroundAtOrigin = True   # Centre the object at the origin, sitting on the z=0 plane
@@ -162,7 +163,7 @@ class Options:
     def meshOptionsString():
         """These options change the mesh, so if they change, a new mesh needs to be cached"""
 
-        return "_".join([str(Options.scale),
+        return "_".join([str(Options.realScale),
                          str(Options.useUnofficialParts),
                          str(Options.instructionsLook),
                          str(Options.resolution),
@@ -172,7 +173,7 @@ class Options:
                          str(Options.removeDoubles),
                          str(Options.smoothShading),
                          str(Options.gaps),
-                         str(Options.gapWidth),
+                         str(Options.realGapWidth),
                          str(Options.curvedWalls),
                          str(Options.flattenHierarchy),
                          str(Options.minifigHierarchy),
@@ -192,8 +193,9 @@ globalBrickCount = 0
 globalObjectsToAdd = []         # Blender objects to add to the scene
 globalCamerasToAdd = []         # Camera data to add to the scene
 globalContext = None
-globalWeldDistance = 0.0005
 globalPoints = []
+globalScaleFactor = 0.0004
+globalWeldDistance = 0.0005
 
 hasCollections = None
 lightName = "Light"
@@ -371,12 +373,14 @@ class Math:
         return max(min(value, 1.0), 0.0)
 
     def __init__(self):
+        global globalScaleFactor
+
         # Rotation and scale matrices that convert LDraw coordinate space to Blender coordinate space
         Math.scaleMatrix = mathutils.Matrix((
-                (Options.scale, 0.0,            0.0,            0.0),
-                (0.0,           Options.scale,  0.0,            0.0),
-                (0.0,           0.0,            Options.scale,  0.0),
-                (0.0,           0.0,            0.0,            1.0)
+                (globalScaleFactor, 0.0,               0.0,               0.0),
+                (0.0,               globalScaleFactor, 0.0,               0.0),
+                (0.0,               0.0,               globalScaleFactor, 0.0),
+                (0.0,               0.0,               0.0,               1.0)
             ))
 
 
@@ -1063,6 +1067,7 @@ class LDrawGeometry:
                 newPoints[2], newPoints[3] = newPoints[3], newPoints[2]
             elif (nB.dot(nC) < 0):
                 newPoints[2], newPoints[1] = newPoints[1], newPoints[2]
+
         pointCount = len(self.points)
         newFace = list(range(pointCount, pointCount + num_points))
         self.points.extend(newPoints)
@@ -1324,8 +1329,8 @@ class LDrawCamera:
 
     def __init__(self):
         self.vert_fov_degrees = 30.0
-        self.near             = 25.0
-        self.far              = 50000.0
+        self.near             = 0.01
+        self.far              = 100.0
         self.position         = mathutils.Vector((0.0, 0.0, 0.0))
         self.target_position  = mathutils.Vector((1.0, 0.0, 0.0))
         self.up_vector        = mathutils.Vector((0.0, 1.0, 0.0))
@@ -1345,6 +1350,7 @@ class LDrawCamera:
         camera.data.clip_start = self.near
         camera.hide_set(self.hidden)
         self.hidden = False
+
         if self.orthographic:
             dist_target_to_camera = (self.position - self.target_position).length
             camera.data.ortho_scale = dist_target_to_camera / 1.92
@@ -1482,6 +1488,7 @@ class LDrawFile:
         """Loads an LDraw file (LDR, L3B, DAT or MPD)"""
 
         global globalCamerasToAdd
+        global globalScaleFactor
 
         self.filename         = filename
         self.lines            = lines
@@ -1582,10 +1589,10 @@ class LDrawFile:
                                     camera.vert_fov_degrees = float(parameters[1])
                                     parameters = parameters[2:]
                                 elif parameters[0] == "ZNEAR":
-                                    camera.near = Options.scale * float(parameters[1])
+                                    camera.near = globalScaleFactor * float(parameters[1])
                                     parameters = parameters[2:]
                                 elif parameters[0] == "ZFAR":
-                                    camera.far = Options.scale * float(parameters[1])
+                                    camera.far = globalScaleFactor * float(parameters[1])
                                     parameters = parameters[2:]
                                 elif parameters[0] == "POSITION":
                                     camera.position = Math.scaleMatrix @ mathutils.Vector((float(parameters[1]), float(parameters[2]), float(parameters[3])))
@@ -1705,7 +1712,6 @@ class BlenderMaterials:
             nodes.remove(n)
 
         if col is not None:
-
             isTransparent = col["alpha"] < 1.0
 
             if Options.instructionsLook:
@@ -1732,7 +1738,7 @@ class BlenderMaterials:
             if isSlopeMaterial and not Options.instructionsLook:
                 BlenderMaterials.__createCyclesSlopeTexture(nodes, links, 0.6)
             elif Options.curvedWalls and not Options.instructionsLook:
-                BlenderMaterials.__createCyclesConcaveWalls(nodes, links, 0.2)
+                BlenderMaterials.__createCyclesConcaveWalls(nodes, links, 20 * globalScaleFactor)
 
             material["Lego.isTransparent"] = isTransparent
             return material
@@ -2357,6 +2363,8 @@ class BlenderMaterials:
 
     # **********************************************************************************
     def __createBlenderSlopeTextureNodeGroup():
+        global globalScaleFactor
+
         if bpy.data.node_groups.get('Slope Texture') is None:
             debugPrint("createBlenderSlopeTextureNodeGroup #create")
             # create a group
@@ -2367,7 +2375,7 @@ class BlenderMaterials:
 
             # create nodes
             node_texture_coordinate = BlenderMaterials.__nodeTexCoord(group.nodes, -300, 240)
-            node_voronoi = BlenderMaterials.__nodeVoronoi(group.nodes, 3.0/Options.scale, -100, 155)
+            node_voronoi = BlenderMaterials.__nodeVoronoi(group.nodes, 3.0/globalScaleFactor, -100, 155)
             node_bump = BlenderMaterials.__nodeBumpShader(group.nodes, 0.3, 0.08, 90, 50)
             node_bump.invert = True
 
@@ -2529,7 +2537,7 @@ class BlenderMaterials:
                 group.links.new(node_emission.outputs['Emission'], node_output.inputs['Shader'])
             else:
                 if BlenderMaterials.usePrincipledShader:
-                    node_main = BlenderMaterials.__nodePrincipled(group.nodes, 0.05, 0.05, 0.0, 0.1, 0.0, 0.0, 1.45, 0.0, 0, 0)
+                    node_main = BlenderMaterials.__nodePrincipled(group.nodes, 5 * globalScaleFactor, 0.05, 0.0, 0.1, 0.0, 0.0, 1.45, 0.0, 0, 0)
                     output_name = 'BSDF'
                     color_name = 'Base Color'
                     group.links.new(node_input.outputs['Color'],        node_main.inputs['Subsurface Color'])
@@ -3344,6 +3352,8 @@ def parseParentsFile(file):
 
 # **************************************************************************************
 def setupImplicitParents():
+    global globalScaleFactor
+
     if not Options.minifigHierarchy:
         return
 
@@ -3370,7 +3380,7 @@ def setupImplicitParents():
     # print('Child parts: %s' % (childParts,))
     # print('Interesting parts: %s' % (interestingParts,))
 
-    tolerance = Options.scale * 5 # in LDraw units
+    tolerance = globalScaleFactor * 5 # in LDraw units
     squaredTolerance = tolerance * tolerance
     # print(" Squared tolerance: %s" % (squaredTolerance,))
 
@@ -3573,10 +3583,12 @@ def createMesh(name, meshName, geometry):
 
 # **************************************************************************************
 def addModifiers(ob):
+    global globalScaleFactor
+
     # Add Bevel modifier to each instance
     if Options.addBevelModifier:
         bevelModifier = ob.modifiers.new("Bevel", type='BEVEL')
-        bevelModifier.width = Options.bevelWidth * Options.scale
+        bevelModifier.width = Options.bevelWidth * globalScaleFactor
         bevelModifier.segments = 4
         bevelModifier.profile = 0.5
         bevelModifier.limit_method = 'WEIGHT'
@@ -3690,6 +3702,9 @@ def createBlenderObjectsFromNode(node,
 
                 unlinkFromScene(ob)
 
+        # The lines out of an empty shown in the viewport are scaled to a reasonable size
+        ob.empty_display_size = 250.0 * globalScaleFactor
+
         # Mark object as transparent if any polygon is transparent
         ob["Lego.isTransparent"] = False
         if mesh is not None:
@@ -3770,10 +3785,10 @@ def createBlenderObjectsFromNode(node,
 
             # Scale for Gaps
             if Options.gaps and node.file.isPart:
-                # Distance between gaps is controlled by Options.gapWidth
-                # Gap height is set smaller than gapWidth since empirically, stacked bricks tend
+                # Distance between gaps is controlled by Options.realGapWidth
+                # Gap height is set smaller than realGapWidth since empirically, stacked bricks tend
                 # to be pressed more tightly together
-                gapHeight = 0.33 * Options.gapWidth
+                gapHeight = 0.33 * Options.realGapWidth
                 objScale = ob.scale
                 dim = ob.dimensions
 
@@ -3785,11 +3800,11 @@ def createBlenderObjectsFromNode(node,
                 # in every direction, creating a uniform gap.
                 scaleFac = mathutils.Vector( (1.0, 1.0, 1.0) )
                 if dim.x != 0:
-                    scaleFac.x = 1 - Options.gapWidth * abs(objScale.x) / dim.x
+                    scaleFac.x = 1 - Options.realGapWidth * abs(objScale.x) / dim.x
                 if dim.y != 0:
-                    scaleFac.y = 1 - gapHeight        * abs(objScale.y) / dim.y
+                    scaleFac.y = 1 - gapHeight            * abs(objScale.y) / dim.y
                 if dim.z != 0:
-                    scaleFac.z = 1 - Options.gapWidth * abs(objScale.z) / dim.z
+                    scaleFac.z = 1 - Options.realGapWidth * abs(objScale.z) / dim.z
 
                 # A safety net: Don't distort the part too much (e.g. -ve scale would not look good)
                 if scaleFac.x < 0.95:
@@ -3827,6 +3842,7 @@ def createBlenderObjectsFromNode(node,
         # Add bevel and edge split modifiers as needed
         if mesh:
             addModifiers(ob)
+
     else:
         blenderParentTransform = blenderParentTransform @ localMatrix
 
@@ -4045,6 +4061,7 @@ def setupInstructionsLook():
 
     # Restore current view layer
     bpy.context.window.view_layer = current_view_layer
+
     # Use Z layer (defaults to off in Blender 3.5.1)
     if hasattr(layers[transLayer], "use_pass_z"):
         layers[transLayer].use_pass_z = True
@@ -4319,6 +4336,40 @@ def getConvexHull(minPoints = 3):
 def loadFromFile(context, filename, isFullFilepath=True):
     global globalCamerasToAdd
     global globalContext
+    global globalScaleFactor
+
+    # Set global scale factor
+    # -----------------------
+    #
+    # 1. The size of Lego pieces:
+    #
+    # Lego scale: https://www.lugnet.com/~330/FAQ/Build/dimensions
+    #
+    #   1 Lego draw unit = 0.4 mm, in an idealised world.
+    #
+    # In real life, actual Lego pieces have been measured as 0.3993 mm +/- 0.0002,
+    # which makes 0.4mm accurate enough for all practical purposes (The difference
+    # being just 7 microns).
+    #
+    # 2. Blender coordinates:
+    #
+    # Blender reports coordinates in metres by default. So the
+    # scale factor to convert from Lego units to Blender coordinates
+    # is 0.0004.
+    #
+    # This calculation does not adjust for any gap between the pieces.
+    # This is (optionally) done later in the calculations, where we
+    # reduce the size of each piece by 0.2mm (default amount) to allow
+    # for a small gap between pieces. This matches real piece sizes.
+    #
+    # 3. Blender Scene Unit Scale:
+    #
+    # Blender has a 'Scene Unit Scale' value which by default is set
+    # to 1.0. By changing the 'Unit Scale' after import the size of
+    # everything in the scene can be adjusted.
+
+    globalScaleFactor = 0.0004 * Options.realScale
+    globalWeldDistance = 0.01 * globalScaleFactor
 
     globalCamerasToAdd = []
     globalContext = context
@@ -4413,6 +4464,7 @@ def loadFromFile(context, filename, isFullFilepath=True):
             scene.camera.data.type = 'ORTHO'
         else:
             scene.camera.data.type = 'PERSP'
+
     # Centre object only if root node is a model
     if node.file.isModel and globalPoints:
         # Calculate our bounding box in global coordinate space
@@ -4448,6 +4500,9 @@ def loadFromFile(context, filename, isFullFilepath=True):
         if camera is not None:
             if Options.positionCamera:
                 debugPrint("Positioning Camera")
+
+                camera.data.clip_start = 25 * globalScaleFactor            # 0.01 at normal scale
+                camera.data.clip_end   = 250000 * globalScaleFactor        # 100 at normal scale
 
                 # Set up a default camera position and rotation
                 camera.location = mathutils.Vector((6.5, -6.5, 4.75))
@@ -4519,7 +4574,7 @@ def loadFromFile(context, filename, isFullFilepath=True):
     # Add ground plane with white material
     if Options.addGroundPlane and not Options.instructionsLook:
         if "LegoGroundPlane" not in sceneObjectNames:
-            addPlane((0,0,0), 100000 * Options.scale)
+            addPlane((0,0,0), 100000 * globalScaleFactor)
 
             blenderName = "Mat_LegoGroundPlane"
             # Reuse current material if it exists, otherwise create a new material
