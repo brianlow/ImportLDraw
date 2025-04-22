@@ -525,7 +525,7 @@ class LegoColours:
         print("RGB = {0},{1},{2} Brightness: {3}".format(R, G, B, brightness))
 
         # Dark colours have white lines
-        if brightness < 0.02:
+        if brightness < 0.03:
             return True
         return False
 
@@ -593,9 +593,10 @@ class LegoColours:
             return LegoColours.hexDigitsToLinearRGBA(rgb_str, alpha)
         return None
 
-    def __overwriteColour(index, colour):
+    def __overwriteColour(index, sRGBColour):
         if index in LegoColours.colours:
-            LegoColours.colours[index]["colour"] = colour
+            # Colour Space Management: Convert sRGB colour values to Blender's linear RGB colour space
+            LegoColours.colours[index]["colour"] = LegoColours.sRGBtoLinearRGB(sRGBColour)
 
     def __readColourTable():
         """Reads the colour values from the LDConfig.ldr file. For details of the
@@ -784,10 +785,6 @@ class LegoColours:
             LegoColours.__overwriteColour(503, (199/255, 193/255, 183/255))
             LegoColours.__overwriteColour(504, (137/255, 135/255, 136/255))
             LegoColours.__overwriteColour(511, (250/255, 250/255, 250/255))
-
-        # Colour Space Management: Convert these sRGB colour values to Blender's linear RGB colour space
-        for key in LegoColours.colours:
-            LegoColours.colours[key]["colour"] = LegoColours.sRGBtoLinearRGB(LegoColours.colours[key]["colour"])
 
     def lightenRGBA(colour, scale):
         # Moves the linear RGB values closer to white
@@ -1346,7 +1343,7 @@ class LDrawCamera:
         camera.data.angle = self.vert_fov_degrees * 3.1415926 / 180.0
         camera.data.clip_end = self.far
         camera.data.clip_start = self.near
-        camera.hide = self.hidden
+        camera.hide_set(self.hidden)
         self.hidden = False
         if self.orthographic:
             dist_target_to_camera = (self.position - self.target_position).length
@@ -3742,8 +3739,16 @@ def createBlenderObjectsFromNode(node,
             bm.edges.ensure_lookup_table()
 
             # Remove doubles
+            # Note: This doesn't work properly with a low distance value
+            # So we scale up the vertices beforehand and scale them down afterwards
+            for v in bm.verts:
+                v.co = v.co * 1000
+
             if removeDoubles:
-                bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=globalWeldDistance)
+                bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=globalWeldDistance)
+
+            for v in bm.verts:
+                v.co = v.co / 1000
 
             # Recalculate normals
             if recalculateNormals:
@@ -3970,6 +3975,14 @@ def setupRealisticLook():
 
 
 # **************************************************************************************
+def createCollection(scene, name):
+    if bpy.data.collections.find(name) < 0:
+        # Create collection
+        bpy.data.collections.new(name)
+        # Add collection to scene
+        scene.collection.children.link(bpy.data.collections[name])
+
+# **************************************************************************************
 def setupInstructionsLook():
     scene = bpy.context.scene
     render = scene.render
@@ -3994,29 +4007,12 @@ def setupInstructionsLook():
     if scene.cycles.transparent_max_bounces < 80:
         scene.cycles.transparent_max_bounces = 80
 
-    # Add two groups, if not already present
+    # Add collections / groups, if not already present
     if hasCollections:
-        if bpy.data.collections.find('Black Edged Bricks Collection') < 0:
-            # Create collection
-            bpy.data.collections.new('Black Edged Bricks Collection')
-            # Add collection to scene
-            scene.collection.children.link(bpy.data.collections['Black Edged Bricks Collection'])
-        if bpy.data.collections.find('White Edged Bricks Collection') < 0:
-            # Create collection
-            bpy.data.collections.new('White Edged Bricks Collection')
-            # Add collection to scene
-            scene.collection.children.link(bpy.data.collections['White Edged Bricks Collection'])
-        if bpy.data.collections.find('Solid Bricks Collection') < 0:
-            # Create collection
-            bpy.data.collections.new('Solid Bricks Collection')
-            # Add collection to scene
-            scene.collection.children.link(bpy.data.collections['Solid Bricks Collection'])
-        if bpy.data.collections.find('Transparent Bricks Collection') < 0:
-            # Create collection
-            bpy.data.collections.new('Transparent Bricks Collection')
-            # Add collection to scene
-            scene.collection.children.link(bpy.data.collections['Transparent Bricks Collection'])
-
+        createCollection(scene, 'Black Edged Bricks Collection')
+        createCollection(scene, 'White Edged Bricks Collection')
+        createCollection(scene, 'Solid Bricks Collection')
+        createCollection(scene, 'Transparent Bricks Collection')
     else:
         if bpy.data.groups.find('Black Edged Bricks Collection') < 0:
             bpy.data.groups.new('Black Edged Bricks Collection')
@@ -4026,6 +4022,10 @@ def setupInstructionsLook():
     # Find or create the render/view layers we are interested in:
     layers = getLayers(scene)
 
+    # Remember current view layer
+    current_view_layer = bpy.context.view_layer
+
+    # Add layers as needed
     layerNames = list(map((lambda x: x.name), layers))
     if "SolidBricks" not in layerNames:
         bpy.ops.scene.view_layer_add()
@@ -4043,6 +4043,8 @@ def setupInstructionsLook():
         layerNames.append("TransparentBricks")
     transLayer = layerNames.index("TransparentBricks")
 
+    # Restore current view layer
+    bpy.context.window.view_layer = current_view_layer
     # Use Z layer (defaults to off in Blender 3.5.1)
     if hasattr(layers[transLayer], "use_pass_z"):
         layers[transLayer].use_pass_z = True
@@ -4405,6 +4407,12 @@ def loadFromFile(context, filename, isFullFilepath=True):
     getConvexHull()
     debugPrint("Number of convex hull vertices: " + str(len(globalPoints)))
 
+    # Set camera type
+    if scene.camera is not None:
+        if Options.instructionsLook:
+            scene.camera.data.type = 'ORTHO'
+        else:
+            scene.camera.data.type = 'PERSP'
     # Centre object only if root node is a model
     if node.file.isModel and globalPoints:
         # Calculate our bounding box in global coordinate space
