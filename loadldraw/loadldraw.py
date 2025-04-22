@@ -4426,11 +4426,20 @@ def loadFromFile(context, filename, isFullFilepath=True):
         boundingBoxMax[1] = max(p[1] for p in globalPoints)
         boundingBoxMax[2] = max(p[2] for p in globalPoints)
 
+        # Length of bounding box diagonal
+        boundingBoxDistance = (boundingBoxMax - boundingBoxMin).length
+        boundingBoxCentre = (boundingBoxMax + boundingBoxMin) * 0.5
+
         vcentre = (boundingBoxMin + boundingBoxMax) * 0.5
         offsetToCentreModel = mathutils.Vector((-vcentre.x, -vcentre.y, -boundingBoxMin.z))
         if Options.positionObjectOnGroundAtOrigin:
             debugPrint("Centre object")
             rootOb.location += offsetToCentreModel
+
+            # Offset bounding box
+            boundingBoxMin += offsetToCentreModel
+            boundingBoxMax += offsetToCentreModel
+            boundingBoxCentre += offsetToCentreModel
 
             # Offset all points
             globalPoints = [p + offsetToCentreModel for p in globalPoints]
@@ -4442,6 +4451,8 @@ def loadFromFile(context, filename, isFullFilepath=True):
 
                 # Set up a default camera position and rotation
                 camera.location = mathutils.Vector((6.5, -6.5, 4.75))
+                camera.location.normalize()
+                camera.location = camera.location * boundingBoxDistance
                 camera.rotation_mode = 'XYZ'
                 camera.rotation_euler = mathutils.Euler((1.0471975803375244, 0.0, 0.7853981852531433), 'XYZ')
 
@@ -4455,6 +4466,16 @@ def loadFromFile(context, filename, isFullFilepath=True):
                             error = iterateCameraPosition(camera, render, vcentre, True)
                             if (error < 0.001):
                                 break
+
+        # Find the (first) 3D View, then set the view's 'look at' and 'distance'
+        # Note: Not a camera object, but the point of view in the UI.
+        areas = [area for area in bpy.context.window.screen.areas if area.type == 'VIEW_3D']
+        if len(areas) > 0:
+            area = areas[0]
+            with bpy.context.temp_override(area=area):
+                view3d = bpy.context.space_data
+                view3d.region_3d.view_location = boundingBoxCentre      # Where to look at
+                view3d.region_3d.view_distance = boundingBoxDistance    # How far from target
 
     # Get existing object names
     sceneObjectNames = [x.name for x in scene.objects]
