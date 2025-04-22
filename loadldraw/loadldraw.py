@@ -47,22 +47,6 @@ import operator
 from pprint import pprint
 
 # **************************************************************************************
-def matmul(a, b):
-    """Perform matrix multiplication in a blender 2.7 and 2.8 safe way"""
-    if isBlender28OrLater:
-        return operator.matmul(a, b) # the same as writing a @ b, but parses ok in 2.7
-    else:
-        return a * b
-
-# **************************************************************************************
-def matvecmul(a, b):
-    """Perform matrix multiplication in a blender 2.7 and 2.8 safe way"""
-    if isBlender28OrLater:
-        return operator.matmul(a, b) # the same as writing a @ b, but parses ok in 2.7
-    else:
-        return a * b
-
-# **************************************************************************************
 def linkToScene(ob):
     if bpy.context.collection.objects.find(ob.name) < 0:
         bpy.context.collection.objects.link(ob)
@@ -1068,9 +1052,9 @@ class LDrawGeometry:
 
         newPoints = []
         for i in range(num_points):
-            blenderPos = matvecmul(Math.scaleMatrix, mathutils.Vector( (float(parameters[i * 3 + 2]),
+            blenderPos = Math.scaleMatrix @ mathutils.Vector( (float(parameters[i * 3 + 2]),
                                                                float(parameters[i * 3 + 3]),
-                                                               float(parameters[i * 3 + 4])) ))
+                                                               float(parameters[i * 3 + 4])) )
             newPoints.append(blenderPos)
 
         # Fix "bowtie" quadrilaterals (see http://wiki.ldraw.org/index.php?title=LDraw_technical_restrictions#Complex_quadrilaterals)
@@ -1093,12 +1077,12 @@ class LDrawGeometry:
 
         colourName = parameters[1]
         if colourName == "24":
-            blenderPos1 = matvecmul(Math.scaleMatrix, mathutils.Vector( (float(parameters[2]),
+            blenderPos1 = Math.scaleMatrix @ mathutils.Vector( (float(parameters[2]),
                                                                 float(parameters[3]),
-                                                                float(parameters[4])) ))
-            blenderPos2 = matvecmul(Math.scaleMatrix, mathutils.Vector( (float(parameters[5]),
+                                                                float(parameters[4])) )
+            blenderPos2 = Math.scaleMatrix @ mathutils.Vector( (float(parameters[5]),
                                                                 float(parameters[6]),
-                                                                float(parameters[7])) ))
+                                                                float(parameters[7])) )
             self.edges.append((blenderPos1, blenderPos2))
 
     def verify(self, face, numPoints):
@@ -1107,13 +1091,13 @@ class LDrawGeometry:
             assert i >= 0
 
     def appendGeometry(self, geometry, matrix, isStud, isStudLogo, parentMatrix, cull, invert):
-        combinedMatrix = matmul(parentMatrix, matrix)
+        combinedMatrix = parentMatrix @ matrix
         isReflected = combinedMatrix.determinant() < 0.0
         reflectStudLogo = isStudLogo and isReflected
 
         fixedMatrix = matrix.copy()
         if reflectStudLogo:
-            fixedMatrix = matmul(matrix, Math.reflectionMatrix)
+            fixedMatrix = matrix @ Math.reflectionMatrix
             invert = not invert
 
         # Append face information
@@ -1123,7 +1107,7 @@ class LDrawGeometry:
             # Gather points for this face (and transform points)
             newPoints = []
             for i in face:
-                newPoints.append(matvecmul(fixedMatrix, geometry.points[i]))
+                newPoints.append(fixedMatrix @ geometry.points[i])
 
             # Add clockwise and/or anticlockwise sets of points as appropriate
             newFace = face.copy()
@@ -1166,7 +1150,7 @@ class LDrawGeometry:
         # Append edge information
         newEdges = []
         for edge in geometry.edges:
-            newEdges.append( (matvecmul(fixedMatrix, edge[0]), matvecmul(fixedMatrix, edge[1])) )
+            newEdges.append( (fixedMatrix @ edge[0], fixedMatrix @ edge[1]) )
         self.edges.extend(newEdges)
 
 
@@ -1309,7 +1293,7 @@ class LDrawNode:
         key = (self.filename, ourColourName, accumCull, accumInvert, self.bfcCull, self.bfcInverted)
         bakedGeometry = CachedGeometry.getCached(key)
         if bakedGeometry is None:
-            combinedMatrix = matmul(parentMatrix, self.matrix)
+            combinedMatrix = parentMatrix @ self.matrix
 
             # Start with a copy of our file's geometry
             assert len(self.file.geometry.faces) == len(self.file.geometry.faceInfo)
@@ -1607,10 +1591,10 @@ class LDrawFile:
                                     camera.far = Options.scale * float(parameters[1])
                                     parameters = parameters[2:]
                                 elif parameters[0] == "POSITION":
-                                    camera.position = matvecmul(Math.scaleMatrix, mathutils.Vector((float(parameters[1]), float(parameters[2]), float(parameters[3]))))
+                                    camera.position = Math.scaleMatrix @ mathutils.Vector((float(parameters[1]), float(parameters[2]), float(parameters[3])))
                                     parameters = parameters[4:]
                                 elif parameters[0] == "TARGET_POSITION":
-                                    camera.target_position = matvecmul(Math.scaleMatrix, mathutils.Vector((float(parameters[1]), float(parameters[2]), float(parameters[3]))))
+                                    camera.target_position = Math.scaleMatrix @ mathutils.Vector((float(parameters[1]), float(parameters[2]), float(parameters[3])))
                                     parameters = parameters[4:]
                                 elif parameters[0] == "UP_VECTOR":
                                     camera.up_vector = mathutils.Vector((float(parameters[1]), float(parameters[2]), float(parameters[3])))
@@ -1642,7 +1626,7 @@ class LDrawFile:
                 # Parse a File reference
                 if parameters[0] == "1":
                     (x, y, z, a, b, c, d, e, f, g, h, i) = map(float, parameters[2:14])
-                    (x, y, z) = matvecmul(Math.scaleMatrix, mathutils.Vector((x, y, z)))
+                    (x, y, z) = Math.scaleMatrix @ mathutils.Vector((x, y, z))
                     localMatrix = mathutils.Matrix( ((a, b, c, x), (d, e, f, y), (g, h, i, z), (0, 0, 0, 1)) )
 
                     new_filename = " ".join(parameters[14:])
@@ -3250,6 +3234,7 @@ partsHierarchy = {}
 macro_name = None
 macros = {}
 
+# **************************************************************************************
 def parseParentsFile(file):
     global parent
     global attach_points
@@ -3451,13 +3436,13 @@ def setupImplicitParents():
         childrenData = parentableMeshes.get(meshName)
         if not childrenData:
             continue
-        # parentLocation = matmul(obj.matrix_world, mathutils.Vector((0, 0, 0)))
+        # parentLocation = obj.matrix_world @ mathutils.Vector((0, 0, 0))
         # parentMatrixInverted = obj.matrix_world.inverted()
         # print("Looking for children of %s (at %s)" % (obj.name, parentLocation))
 
         slotLocations = []
         for slot in childrenData[0]:
-            loc = matmul(obj.matrix_world, (mathutils.Vector(slot) * Options.scale))
+            loc = obj.matrix_world @ (mathutils.Vector(slot) * Options.scale)
             slotLocations.append(loc)
         # print(" Slot locations: %s" % (slotLocations,))
 
@@ -3674,7 +3659,7 @@ def createBlenderObjectsFromNode(node,
 
         # Create Blender Object
         ob = bpy.data.objects.new(blenderName, mesh)
-        ob.matrix_local = matmul(blenderParentTransform, localMatrix)
+        ob.matrix_local = blenderParentTransform @ localMatrix
 
         if newMeshCreated:
             # For performance reasons we try to avoid using bpy.ops.* methods
@@ -3685,7 +3670,7 @@ def createBlenderObjectsFromNode(node,
             if hasattr(ob.data, "use_customdata_edge_bevel"):
                 ob.data.use_customdata_edge_bevel = True
             else:
-                # create object and add to scene
+                # Add to scene
                 linkToScene(ob)
 
                 # Blender 3.4 removed 'ob.data.use_customdata_edge_bevel', so this seems to be the alternative:
@@ -3824,8 +3809,8 @@ def createBlenderObjectsFromNode(node,
         # Notice that we do this after scaling for Options.gaps
         if Options.positionObjectOnGroundAtOrigin or Options.positionCamera:
             if mesh and mesh.vertices:
-                localTransform = matmul(localToWorldSpaceMatrix, localMatrix)
-                points = [matvecmul(localTransform, p.co) for p in mesh.vertices]
+                localTransform = localToWorldSpaceMatrix @ localMatrix
+                points = [localTransform @ p.co for p in mesh.vertices]
 
                 # Remember all the points
                 globalPoints.extend(points)
@@ -3838,13 +3823,13 @@ def createBlenderObjectsFromNode(node,
         if mesh:
             addModifiers(ob)
     else:
-        blenderParentTransform = matmul(blenderParentTransform, localMatrix)
+        blenderParentTransform = blenderParentTransform @ localMatrix
 
     # Create children and parent them
     for childNode in node.file.childNodes:
         # Create sub-objects recursively
         childColourName = LDrawNode.resolveColour(childNode.colourName, realColourName)
-        createBlenderObjectsFromNode(childNode, childNode.matrix, childNode.filename, childColourName, blenderParentTransform, matmul(localToWorldSpaceMatrix, localMatrix), blenderNodeParent)
+        createBlenderObjectsFromNode(childNode, childNode.matrix, childNode.filename, childColourName, blenderParentTransform, localToWorldSpaceMatrix @ localMatrix, blenderNodeParent)
 
     return ob
 
@@ -4211,7 +4196,7 @@ def iterateCameraPosition(camera, render, vcentre3d, moveCamera):
         scale_x=render.pixel_aspect_x,
         scale_y=render.pixel_aspect_y)
 
-    mp_matrix = matmul(projection_matrix, modelview_matrix)
+    mp_matrix = projection_matrix @ modelview_matrix
     mpinv_matrix = mp_matrix.copy()
     mpinv_matrix.invert()
 
@@ -4220,7 +4205,7 @@ def iterateCameraPosition(camera, render, vcentre3d, moveCamera):
     # Convert 3d points to camera space, calculating the min and max extents in 2d normalised camera space.
     minDistToCamera = sys.float_info.max
     for point in globalPoints:
-        p1 = matvecmul(mp_matrix, mathutils.Vector((point.x, point.y, point.z, 1)))
+        p1 = mp_matrix @ mathutils.Vector((point.x, point.y, point.z, 1))
         if isOrtho:
             point2d = (p1.x, p1.y)
         elif abs(p1.w)<1e-8:
@@ -4266,7 +4251,7 @@ def iterateCameraPosition(camera, render, vcentre3d, moveCamera):
 
     # Transform the 2d centre of object back into 3d space
     if isOrtho:
-        centre3d = matvecmul(mpinv_matrix, mathutils.Vector((centre2d.x, centre2d.y, 0, 1)))
+        centre3d = mpinv_matrix @ mathutils.Vector((centre2d.x, centre2d.y, 0, 1))
         centre3d = mathutils.Vector((centre3d.x, centre3d.y, centre3d.z))
 
         # Move centre3d a distance d from the camera plane
@@ -4274,7 +4259,7 @@ def iterateCameraPosition(camera, render, vcentre3d, moveCamera):
         dist = v.dot(forwards3d)
         centre3d = centre3d + (d - dist) * forwards3d
     else:
-        centre3d = matvecmul(mpinv_matrix, mathutils.Vector((centre2d.x, centre2d.y, -1, 1)))
+        centre3d = mpinv_matrix @ mathutils.Vector((centre2d.x, centre2d.y, -1, 1))
         centre3d = mathutils.Vector((centre3d.x / centre3d.w, centre3d.y / centre3d.w, centre3d.z / centre3d.w))
 
         # Make sure the 3d centre of the object is distance d from the camera location
@@ -4378,10 +4363,10 @@ def loadFromFile(context, filename, isFullFilepath=True):
     if node.file.isModel:
         # Fix top level rotation from LDraw coordinate space to Blender coordinate space
         node.file.geometry.points = [Math.rotationMatrix * p for p in node.file.geometry.points]
-        node.file.geometry.edges  = [(matvecmul(Math.rotationMatrix, e[0]), matvecmul(Math.rotationMatrix, e[1])) for e in node.file.geometry.edges]
+        node.file.geometry.edges  = [(Math.rotationMatrix @ e[0], Math.rotationMatrix @ e[1]) for e in node.file.geometry.edges]
 
         for childNode in node.file.childNodes:
-            childNode.matrix = matmul(Math.rotationMatrix, childNode.matrix)
+            childNode.matrix = Math.rotationMatrix @ childNode.matrix
 
     # Switch to Object mode and deselect all
     if bpy.ops.object.mode_set.poll():
